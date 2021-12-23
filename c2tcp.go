@@ -17,6 +17,7 @@ const (
 
 type c2tcp struct {
 	c2tcp_enable     bool   // c2tcp enabled
+	c2tcp_log_enable bool   // c2tcp log enabled
 	now              uint32 // current time of detector
 	c2tcp_interval   uint32
 	setpoint         uint32
@@ -49,20 +50,22 @@ func (kcp *KCP) c2tcp_initial() {
 	kcp.c2tcp_counter = 0
 	kcp.next_time = 0
 	kcp.condition = IC2TCP_NORMAL
+	kcp.c2tcp_log_enable = false
 }
 
 // SetC2tcpPara set c2tcp para.
-func (s *UDPSession) SetC2tcpPara(enable bool, alpha float32, target uint32) {
+func (s *UDPSession) SetC2tcpPara(enable bool, alpha float32, target uint32, log_enable bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.kcp.SetC2tcpPara(enable, alpha, target)
+	s.kcp.SetC2tcpPara(enable, alpha, target, log_enable)
 }
 
 // SetC2tcpPara set c2tcp para.
-func (kcp *KCP) SetC2tcpPara(enable bool, alpha float32, target uint32) int {
+func (kcp *KCP) SetC2tcpPara(enable bool, alpha float32, target uint32, log_enable bool) int {
 	kcp.c2tcp_enable = enable
 	kcp.alpha = alpha
 	kcp.target = target
+	kcp.c2tcp_log_enable = log_enable
 
 	if kcp.alpha < IC2TCP_MIN_ALPHA {
 		kcp.alpha = IC2TCP_MIN_ALPHA
@@ -93,7 +96,9 @@ func (kcp *KCP) c2tcp_tune_alpha(rtt uint32) {
 			kcp.alpha = IC2TCP_MIN_ALPHA
 		}
 	}
-	log.Println("c2tcp alpha set ", kcp.alpha)
+	if kcp.c2tcp_log_enable {
+		log.Println("c2tcp alpha set ", kcp.alpha)
+	}
 
 	kcp.rtt_sum = rtt
 	kcp.rtt_cnt = 1
@@ -143,6 +148,12 @@ func (kcp *KCP) c2tcp_detect_condition(rtt int32) {
 		return
 	}
 
+	logln := func(v ...interface{}) {
+		if kcp.c2tcp_log_enable {
+			log.Println(v...)
+		}
+	}
+
 	kcp.now = currentMs()
 
 	if kcp.min_rtt == 0 || kcp.min_rtt > uint32(rtt) || int64(_itimediff(kcp.now, kcp.min_rtt_upd_time)) >= time.Second.Milliseconds() {
@@ -160,24 +171,24 @@ func (kcp *KCP) c2tcp_detect_condition(rtt int32) {
 		kcp.first_time = true
 		kcp.c2tcp_counter = 1
 		kcp.c2tcp_upd_cwnd(rtt)
-		log.Println("c2tcp GOOD condition detected, rtt:", rtt, ", target:", kcp.target, ", setpoint:", kcp.setpoint,
-			", alpha: ", kcp.alpha, ", min_rtt: ", kcp.min_rtt, ", avg_rtt:", kcp.rtt_sum/kcp.rtt_cnt)
+		logln("c2tcp GOOD condition detected, rtt:", rtt, ", target:", kcp.target, ", setpoint:", kcp.setpoint,
+			", alpha: ", kcp.alpha, ", min_rtt: ", kcp.min_rtt, ", avg_rtt:", kcp.rtt_sum/kcp.rtt_cnt, ", cwnd:", kcp.cwnd)
 	} else if kcp.first_time {
 		kcp.condition = IC2TCP_NORMAL
 		kcp.first_time = false
 		kcp.next_time = kcp.now + kcp.c2tcp_interval
-		log.Println("c2tcp NORMAL condition detected, rtt:", rtt, ", target:", kcp.target, ", setpoint:", kcp.setpoint,
-			", alpha: ", kcp.alpha, ", min_rtt: ", kcp.min_rtt, ", avg_rtt:", kcp.rtt_sum/kcp.rtt_cnt)
+		logln("c2tcp NORMAL condition detected, rtt:", rtt, ", target:", kcp.target, ", setpoint:", kcp.setpoint,
+			", alpha: ", kcp.alpha, ", min_rtt: ", kcp.min_rtt, ", avg_rtt:", kcp.rtt_sum/kcp.rtt_cnt, ", cwnd:", kcp.cwnd)
 	} else if kcp.now > kcp.next_time {
 		kcp.condition = IC2TCP_BAD
 		kcp.next_time = kcp.now + _imax_(1, kcp.c2tcp_interval/uint32(math.Sqrt(float64(kcp.c2tcp_counter))))
 		kcp.c2tcp_counter++
 		kcp.c2tcp_upd_cwnd(rtt)
-		log.Println("c2tcp BAD condition detected, rtt:", rtt, ", target:", kcp.target, ", setpoint:", kcp.setpoint,
-			", alpha: ", kcp.alpha, ", min_rtt: ", kcp.min_rtt, ", avg_rtt:", kcp.rtt_sum/kcp.rtt_cnt)
+		logln("c2tcp BAD condition detected, rtt:", rtt, ", target:", kcp.target, ", setpoint:", kcp.setpoint,
+			", alpha: ", kcp.alpha, ", min_rtt: ", kcp.min_rtt, ", avg_rtt:", kcp.rtt_sum/kcp.rtt_cnt, ", cwnd:", kcp.cwnd)
 	} else {
-		log.Println("c2tcp condition not change, rtt:", rtt, ", target:", kcp.target, ", setpoint:", kcp.setpoint,
-			", alpha: ", kcp.alpha, ", min_rtt: ", kcp.min_rtt, ", avg_rtt:", kcp.rtt_sum/kcp.rtt_cnt)
+		logln("c2tcp condition not change, rtt:", rtt, ", target:", kcp.target, ", setpoint:", kcp.setpoint,
+			", alpha: ", kcp.alpha, ", min_rtt: ", kcp.min_rtt, ", avg_rtt:", kcp.rtt_sum/kcp.rtt_cnt, ", cwnd:", kcp.cwnd)
 	}
 
 }

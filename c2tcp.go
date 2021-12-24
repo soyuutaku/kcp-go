@@ -85,7 +85,7 @@ func (kcp *KCP) c2tcp_tune_alpha(rtt uint32) {
 	}
 	kcp.alpha_upd_time = kcp.now
 	avg_rtt := kcp.rtt_sum / kcp.rtt_cnt
-	if avg_rtt <= kcp.target {
+	if avg_rtt <= kcp.target || (kcp.target == 0 && avg_rtt <= 2*kcp.setpoint) {
 		kcp.alpha += (float32(kcp.target) - float32(avg_rtt)) / (2 * float32(avg_rtt))
 		if kcp.alpha > IC2TCP_MAX_ALPHA {
 			kcp.alpha = IC2TCP_MAX_ALPHA
@@ -144,14 +144,16 @@ func (kcp *KCP) c2tcp_upd_cwnd(rtt int32) {
 }
 
 func (kcp *KCP) c2tcp_detect_condition(rtt int32) {
-	if !kcp.c2tcp_enable {
-		return
-	}
 
 	logln := func(v ...interface{}) {
 		if kcp.c2tcp_log_enable {
 			log.Println(v...)
 		}
+	}
+
+	if !kcp.c2tcp_enable {
+		logln("rtt:", rtt, ", cwnd:", kcp.cwnd)
+		return
 	}
 
 	kcp.now = currentMs()
@@ -181,10 +183,10 @@ func (kcp *KCP) c2tcp_detect_condition(rtt int32) {
 			", alpha: ", kcp.alpha, ", min_rtt: ", kcp.min_rtt, ", avg_rtt:", kcp.rtt_sum/kcp.rtt_cnt, ", cwnd:", kcp.cwnd)
 	} else if kcp.now > kcp.next_time {
 		kcp.condition = IC2TCP_BAD
-		kcp.next_time = kcp.now + _imax_(1, kcp.c2tcp_interval/uint32(math.Sqrt(float64(kcp.c2tcp_counter))))
+		kcp.next_time = kcp.now + _imax_(1, uint32(float64(kcp.c2tcp_interval)/math.Sqrt(float64(kcp.c2tcp_counter))))
 		kcp.c2tcp_counter++
 		kcp.c2tcp_upd_cwnd(rtt)
-		logln("c2tcp BAD condition detected, rtt:", rtt, ", target:", kcp.target, ", setpoint:", kcp.setpoint,
+		logln("c2tcp BAD(", kcp.c2tcp_counter-1, ") condition detected, rtt:", rtt, ", target:", kcp.target, ", setpoint:", kcp.setpoint,
 			", alpha: ", kcp.alpha, ", min_rtt: ", kcp.min_rtt, ", avg_rtt:", kcp.rtt_sum/kcp.rtt_cnt, ", cwnd:", kcp.cwnd)
 	} else {
 		logln("c2tcp condition not change, rtt:", rtt, ", target:", kcp.target, ", setpoint:", kcp.setpoint,

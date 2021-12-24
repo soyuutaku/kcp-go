@@ -63,6 +63,9 @@ func (s *UDPSession) SetC2tcpPara(enable bool, alpha float32, target uint32, log
 // SetC2tcpPara set c2tcp para.
 func (kcp *KCP) SetC2tcpPara(enable bool, alpha float32, target uint32, log_enable bool) int {
 	kcp.c2tcp_enable = enable
+	if enable {
+		kcp.nocwnd = 0
+	}
 	kcp.alpha = alpha
 	kcp.target = target
 	kcp.c2tcp_log_enable = log_enable
@@ -151,7 +154,7 @@ func (kcp *KCP) c2tcp_detect_condition(rtt int32) {
 		}
 	}
 
-	if !kcp.c2tcp_enable {
+	if !kcp.c2tcp_enable || kcp.nocwnd != 0 {
 		logln("rtt:", rtt, ", cwnd:", kcp.cwnd)
 		return
 	}
@@ -169,7 +172,7 @@ func (kcp *KCP) c2tcp_detect_condition(rtt int32) {
 
 	if rtt < int32(kcp.setpoint) {
 		kcp.condition = IC2TCP_GOOD
-		kcp.interval = kcp.setpoint
+		kcp.c2tcp_interval = kcp.setpoint
 		kcp.first_time = true
 		kcp.c2tcp_counter = 1
 		kcp.c2tcp_upd_cwnd(rtt)

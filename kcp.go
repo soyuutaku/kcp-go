@@ -619,6 +619,11 @@ func (kcp *KCP) Input(data []byte, regular, ackNoDelay bool) int {
 			kcp.parse_fastack(sn, ts)
 			flag |= 1
 			latest = ts
+
+			kcp.update_cwnd(snd_una)
+			if rtt := _itimediff(now, ts); rtt >= 0 && regular {
+				kcp.c2tcp_detect_condition(rtt)
+			}
 		} else if cmd == IKCP_CMD_PUSH {
 			repeat := true
 			if _itimediff(sn, kcp.rcv_nxt+kcp.rcv_wnd) < 0 {
@@ -655,15 +660,12 @@ func (kcp *KCP) Input(data []byte, regular, ackNoDelay bool) int {
 	}
 	atomic.AddUint64(&DefaultSnmp.InSegs, inSegs)
 
-	kcp.update_cwnd(snd_una)
-
 	// update rtt with the latest ts
 	// ignore the FEC packet
 	if flag != 0 && regular {
 		rtt := _itimediff(now, latest)
 		if rtt >= 0 {
 			kcp.update_ack(rtt)
-			kcp.c2tcp_detect_condition(rtt)
 		}
 	}
 
